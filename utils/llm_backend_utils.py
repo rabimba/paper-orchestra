@@ -228,3 +228,62 @@ def call_llm_with_pdf(
             check_parsed_response_not_none=check_parsed_response_not_none,
         )
         return response_dict
+
+
+def call_llm_with_contents(
+    contents: list,
+    model_name: str,
+    generation_configs: Optional[Dict[str, Any]] = None,
+    result_parsing_func: Optional[Callable] = None,
+    check_parsed_response_not_none: bool = True,
+    return_json: bool = True,
+) -> Dict[str, Any]:
+    """
+    Unified function to call either Gemini or OpenAI/Ollama with a list of text parts / contents.
+    """
+    parser = (
+        result_parsing_func
+        if result_parsing_func is not None
+        else get_llm_parser(model_name, return_json)
+    )
+
+    if is_openai_backend(model_name):
+        text_parts = []
+        for part in contents:
+            if hasattr(part, "text") and part.text is not None:
+                text_parts.append(part.text)
+            elif hasattr(part, "inline_data") and part.inline_data is not None:
+                if getattr(part.inline_data, "mime_type", "") == "application/pdf":
+                    import pymupdf
+                    doc = pymupdf.open(stream=part.inline_data.data, filetype="pdf")
+                    extracted = "\n".join([page.get_text() for page in doc])
+                    text_parts.append(f"--- Extracted PDF Content ---\n{extracted}\n--- End PDF Content ---")
+            elif isinstance(part, str):
+                text_parts.append(part)
+            else:
+                text_parts.append(str(part))
+
+        full_text = "\n\n".join(text_parts)
+        system_prompt = None
+        configs_for_openai = dict(generation_configs) if generation_configs else {}
+        if "system_instruction" in configs_for_openai:
+            system_prompt = configs_for_openai.pop("system_instruction")
+        if "temperature" in configs_for_openai:
+            configs_for_openai.pop("temperature")
+
+        return call_openai_models_with_text_prompt(
+            prompt=full_text,
+            model_name=model_name,
+            generation_configs=configs_for_openai,
+            result_parsing_func=parser,
+            check_parsed_response_not_none=check_parsed_response_not_none,
+            system_prompt=system_prompt,
+        )
+    else:
+        return call_gemini_with_contents(
+            contents=contents,
+            model_name=model_name,
+            generation_configs=generation_configs,
+            result_parsing_func=parser,
+            check_parsed_response_not_none=check_parsed_response_not_none,
+        )

@@ -26,6 +26,11 @@ from methods.prompts.literature_review_agent import (
     literature_review_agent_writter_prompt,
 )
 from utils.gemini_utils import call_gemini_with_contents, parse_gemini_latex_results
+from utils.llm_backend_utils import (
+    call_llm_with_contents,
+    call_llm_with_text_prompt,
+    is_openai_backend,
+)
 from utils.scholar_utils import s2_title_search
 
 
@@ -461,14 +466,24 @@ class HybridLiteratureAgent:
             {DiscoveryResult.model_json_schema()}
             """
 
-        response_dict = call_gemini_with_contents(
-            model_name="gemini-3-flash-preview",
-            contents=[prompt],
-            generation_configs={
-                "tools": [self.google_search_tool],
-                "temperature": 0.1 if task.get("search_type") == "targeted" else 0.4,
-            },
-        )
+        if is_openai_backend(self.model_name):
+            response_dict = call_llm_with_text_prompt(
+                prompt=prompt,
+                model_name=self.model_name,
+                generation_configs={
+                    "temperature": 0.1 if task.get("search_type") == "targeted" else 0.4,
+                },
+                return_json=True,
+            )
+        else:
+            response_dict = call_gemini_with_contents(
+                model_name="gemini-3-flash-preview",
+                contents=[prompt],
+                generation_configs={
+                    "tools": [self.google_search_tool],
+                    "temperature": 0.1 if task.get("search_type") == "targeted" else 0.4,
+                },
+            )
 
         if response_dict["parsed_response"]:
             return response_dict["parsed_response"].get("candidates", [])
@@ -496,7 +511,7 @@ class HybridLiteratureAgent:
         )
 
         user_prompt = "Generate the LaTeX for Introduction and Related Work sections."
-        response_dict = call_gemini_with_contents(
+        response_dict = call_llm_with_contents(
             model_name=self.model_name,
             contents=[user_prompt, json.dumps(context_payload)],
             generation_configs={"system_instruction": writer_system_prompt},
