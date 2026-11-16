@@ -155,25 +155,18 @@ fi
 echo "[3/6] Logging experiment ${EXP_ID} in RESEARCH_DIARY.md..."
 TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 GIT_HASH=$(cd "${REPO_ROOT}" && git rev-parse --short HEAD 2>/dev/null || echo "uncommitted")
-
-DIARY_ENTRY="
-| \`${EXP_ID}\` | $(date +'%Y-%m-%d %H:%M') | \`${GIT_HASH}\` | Automated Paper Generation (${RAW_MATERIALS_DIR}) | Running | Output: ${OUTPUT_DIR} |
-"
+DATE_STR=$(date +'%Y-%m-%d %H:%M')
 
 ssh "${REMOTE_USER}@${REMOTE_HOST}" "
     mkdir -p '${REMOTE_DIR}/runs/${EXP_ID}'
-    # Prepend to diary if index exists
-    if grep -q '## Experiment Index' '${REMOTE_DIR}/RESEARCH_DIARY.md' 2>/dev/null; then
-        awk -v entry=\"${DIARY_ENTRY}\" '/## Experiment Index/{print; print \"\"; print entry; next}1' '${REMOTE_DIR}/RESEARCH_DIARY.md' > '${REMOTE_DIR}/RESEARCH_DIARY.tmp' && mv '${REMOTE_DIR}/RESEARCH_DIARY.tmp' '${REMOTE_DIR}/RESEARCH_DIARY.md'
-    fi
-"
+    cat <<'EOF' > '${REMOTE_DIR}/runs/${EXP_ID}/run.sh'
+#!/usr/bin/env bash
+set -euo pipefail
 
-# 4. Construct execution command
-REMOTE_CMD="
 export HF_HOME='${REMOTE_STORAGE}/.cache/huggingface'
 export TORCH_HOME='${REMOTE_STORAGE}/.cache/torch'
 export TMPDIR='${REMOTE_STORAGE}/tmp'
-export PATH='${REMOTE_STORAGE}/tinytex/.TinyTeX/bin/x86_64-linux:${REMOTE_ENV}/bin:\$PATH'
+export PATH="/data/rabimba/tinytex/.TinyTeX/bin/x86_64-linux:/data/rabimba/envs/paper-orchestra/bin:/usr/local/bin:/usr/bin:/bin:\$PATH"
 export PYTHONPATH='${REMOTE_DIR}'
 
 mkdir -p \"\${TMPDIR}\"
@@ -182,32 +175,34 @@ cd '${REMOTE_DIR}'
 echo '=== PaperOrchestra Job Started: ${EXP_ID} ===' > 'runs/${EXP_ID}/run.log'
 date >> 'runs/${EXP_ID}/run.log'
 
+set +e
 '${REMOTE_ENV}/bin/python' paper_writing_cli.py \\
     --raw_materials_dir '${RAW_MATERIALS_DIR}' \\
     --latex_template_dir '${LATEX_TEMPLATE_DIR}' \\
     --output_dir '${OUTPUT_DIR}' \\
     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \\
     >> 'runs/${EXP_ID}/run.log' 2>&1
-
 EXIT_CODE=\$?
+set -e
+
 echo \"=== Job Finished with exit code \${EXIT_CODE} ===\" >> 'runs/${EXP_ID}/run.log'
 
-# Update diary status
 if [ \${EXIT_CODE} -eq 0 ]; then
-    sed -i 's/${EXP_ID}.*Running/${EXP_ID} | $(date +'%Y-%m-%d %H:%M') | \`${GIT_HASH}\` | Automated Paper Generation | Completed/' '${REMOTE_DIR}/RESEARCH_DIARY.md' || true
+    sed -i \"s/${EXP_ID}.*Running/${EXP_ID} | ${DATE_STR} | \\\`${GIT_HASH}\\\` | Automated Paper Generation | Completed/\" '${REMOTE_DIR}/RESEARCH_DIARY.md' || true
 else
-    sed -i 's/${EXP_ID}.*Running/${EXP_ID} | $(date +'%Y-%m-%d %H:%M') | \`${GIT_HASH}\` | Automated Paper Generation | Failed (code '\${EXIT_CODE}')/' '${REMOTE_DIR}/RESEARCH_DIARY.md' || true
+    sed -i \"s/${EXP_ID}.*Running/${EXP_ID} | ${DATE_STR} | \\\`${GIT_HASH}\\\` | Automated Paper Generation | Failed/\" '${REMOTE_DIR}/RESEARCH_DIARY.md' || true
 fi
 
-# Continuous git sync as per skill
 git add . && git commit -m 'exp(${EXP_ID}): run status update' && git push origin main || true
+EOF
+    chmod +x '${REMOTE_DIR}/runs/${EXP_ID}/run.sh'
 "
 
-# 5. Launch detached tmux session on Puffingbird
+# 4. Launch detached tmux session on Puffingbird
 echo "[4/6] Launching compute job in tmux session 'orchestra_${EXP_ID}' on puffingbird..."
 ssh "${REMOTE_USER}@${REMOTE_HOST}" "
     tmux kill-session -t 'orchestra_${EXP_ID}' 2>/dev/null || true
-    tmux new-session -d -s 'orchestra_${EXP_ID}' -c '${REMOTE_DIR}' bash -c '$(printf "%q" "${REMOTE_CMD}")'
+    tmux new-session -d -s 'orchestra_${EXP_ID}' -c '${REMOTE_DIR}' bash '${REMOTE_DIR}/runs/${EXP_ID}/run.sh'
 "
 
 echo "[5/6] Job successfully dispatched to puffingbird!"
