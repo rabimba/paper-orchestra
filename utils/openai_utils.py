@@ -37,15 +37,25 @@ def get_openai_client() -> OpenAI:
 
     The client is created lazily so that OPENAI_API_KEY is only required when
     an OpenAI model is actually called (e.g. Gemini-only setups don't need it).
+    Supports OPENAI_BASE_URL to seamlessly offload requests to remote/local OpenAI-compatible
+    servers (such as vLLM or Ollama on puffingbird).
     """
     global _openai_client
     if _openai_client is None:
         with _openai_client_lock:
             if _openai_client is None:
                 openai_api_key = os.environ.get("OPENAI_API_KEY")
-                if not openai_api_key:
-                    raise ValueError("OPENAI_API_KEY must be set to use OpenAI models.")
-                _openai_client = OpenAI(api_key=openai_api_key)
+                base_url = os.environ.get("OPENAI_BASE_URL")
+                if not openai_api_key and not base_url:
+                    raise ValueError(
+                        "Either OPENAI_API_KEY or OPENAI_BASE_URL must be set to use OpenAI-compatible models."
+                    )
+                client_kwargs = {
+                    "api_key": openai_api_key or "EMPTY",
+                }
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+                _openai_client = OpenAI(**client_kwargs)
     return _openai_client
 
 

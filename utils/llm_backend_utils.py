@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import json
 from typing import Optional, Callable, Dict, Any
 
@@ -32,6 +33,29 @@ from utils.openai_utils import (
 from utils.pdf_utils import load_paper
 
 
+def is_openai_backend(model_name: str) -> bool:
+    """Determines whether a model should be queried via the OpenAI-compatible client.
+    
+    Routes to OpenAI backend if:
+    1. Model name includes standard OpenAI identifiers ('gpt', 'o1', 'o3', 'openai/').
+    2. Environment explicitly sets LLM_BACKEND=openai.
+    3. OPENAI_BASE_URL is set (e.g. puffingbird vLLM/Ollama server) and model is not Google Gemini.
+    """
+    name = model_name.lower()
+    if (
+        "gpt" in name
+        or "o1" in name
+        or "o3" in name
+        or name.startswith("openai/")
+        or os.environ.get("LLM_BACKEND", "").lower() == "openai"
+    ):
+        return True
+    if os.environ.get("OPENAI_BASE_URL"):
+        if not ("gemini" in name or name.startswith("google/")):
+            return True
+    return False
+
+
 def identity_parse(response: str):
     return response
 
@@ -40,11 +64,7 @@ def get_llm_parser(model_name: str, return_json: bool = True) -> Callable:
     if not return_json:
         return identity_parse
 
-    if (
-        "gpt" in model_name.lower()
-        or "o1" in model_name.lower()
-        or "o3" in model_name.lower()
-    ):
+    if is_openai_backend(model_name):
         return parse_openai_json_results
     else:
         return parse_gemini_json_results
@@ -70,11 +90,7 @@ def call_llm_with_text_prompt(
     if generation_configs is None:
         generation_configs = {}
 
-    if (
-        "gpt" in model_name.lower()
-        or "o1" in model_name.lower()
-        or "o3" in model_name.lower()
-    ):
+    if is_openai_backend(model_name):
         system_prompt = None
         configs_for_openai = dict(generation_configs) if generation_configs else {}
         if "system_instruction" in configs_for_openai:
@@ -123,11 +139,7 @@ def call_llm_with_images(
     if generation_configs is None:
         generation_configs = {}
 
-    if (
-        "gpt" in model_name.lower()
-        or "o1" in model_name.lower()
-        or "o3" in model_name.lower()
-    ):
+    if is_openai_backend(model_name):
         system_prompt = None
         # Copy to avoid side-effects on caller's dictionary
         configs_for_openai = dict(generation_configs) if generation_configs else {}
@@ -181,11 +193,7 @@ def call_llm_with_pdf(
         else get_llm_parser(model_name, return_json)
     )
 
-    if (
-        "gpt" in model_name.lower()
-        or "o1" in model_name.lower()
-        or "o3" in model_name.lower()
-    ):
+    if is_openai_backend(model_name):
         paper_text = load_paper(pdf_path, min_size=100)
         full_prompt = f"Paper Content:\n{paper_text}\n\nTask:\n{prompt}"
 

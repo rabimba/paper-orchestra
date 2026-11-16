@@ -1,7 +1,39 @@
 *.pyc
+*.py[cod]
+__pycache__/
 *.out
 .env
 *.log
 datasets/*
 paper_output*
+runs/
 *.zip
+*.tar
+*.tar.gz
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Model Checkpoints & Large Weights
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+*.onnx
+
+# Cache
+.cache/
+hf_cache/
+wandb/
+
+# Temporary
+tmp/
+*.tmp
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
